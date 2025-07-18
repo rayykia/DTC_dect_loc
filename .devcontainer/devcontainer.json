@@ -1,0 +1,11 @@
+{
+  "name": "ROS Dev Container",
+  "image": "ros-noetic-cuda",
+  "runArgs": ["--gpus=all"],
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/home/ros_ws,type=bind",
+    "source=/mnt, target=/mnt,type=bind"
+  ],
+  "workspaceFolder": "/home/ros_ws",
+  "remoteUser": "root"
+}

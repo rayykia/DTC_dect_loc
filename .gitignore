@@ -1,0 +1,9 @@
+.config/
+checkpoints/
+imgs/
+sandbox/
+*.mp4/
+__pycache__/
+logs/
+*.png
+*.zip
