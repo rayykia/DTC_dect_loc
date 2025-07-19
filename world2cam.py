@@ -32,7 +32,7 @@ if __name__ == "__main__":
     save_frames_to = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_april'
     save_vid = False
     # vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_april.mp4'
-    vid_pth = 'imu_cinfirm.mp4'
+    vid_pth = 'ridT.mp4'
     #############################################################################
 
 
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     ])
 
     R_dis = []
-    for ts, frame, translation, R, zone in image_stream(
+    for ts, frame, translation, imu_R, mav_R, zone in image_stream(
         bag_pth, 
         frame_topic, 
         pose_topic, 
@@ -92,7 +92,7 @@ if __name__ == "__main__":
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             writer = cv2.VideoWriter("temp.mp4", fourcc, 20, (width, height))
         
-        R_cw = R.T
+        R_cw = mav_R @ imu_R
 
         # Transform NED vectors from world to camera frame
         cam_origin = np.array([0, 0, 1]) # origin in cam frame

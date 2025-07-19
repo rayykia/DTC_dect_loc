@@ -40,8 +40,8 @@ def read_gps(
     gps_timestamps = np.array(gps_timestamps)
     gps_ll = np.array(gps_ll)
     
-    # z0 = gps_ll[0, -1]
-    # gps_ll = gps_ll - np.array([0, 0, z0])
+    z0 = gps_ll[0, -1]
+    gps_ll = gps_ll - np.array([0, 0, z0])
 
     return gps_timestamps, gps_ll
 
@@ -175,45 +175,24 @@ def image_stream(
     if loc:
         logger.info("Loading pose...")
 
-        if not use_pose_rot:
-            logger.info("Loading GPS...")
-            gps_timestamps, gps_ll = read_gps(bag, gps_topic)
 
-            translation = []
-            zone = None
-            for i, ll in enumerate(gps_ll):
-                zone, easting, northing = LLtoUTM(23, ll[1], ll[0])
-                translation.append([northing, easting, -ll[-1]])
-            translation = np.array(translation)
+        logger.info("Loading GPS...")
+        gps_timestamps, gps_ll = read_gps(bag, gps_topic)
 
-            pose_timestamps, rotation = read_imu(bag, imu_topic)
+        translation = []
+        zone = None
+        for i, ll in enumerate(gps_ll):
+            zone, easting, northing = LLtoUTM(23, ll[1], ll[0])
+            translation.append([northing, easting, -ll[-1]])
+        translation = np.array(translation)
 
-            T_ci = np.array([
-            [ 0.99961803, -0.01195821, -0.0249158,   0.01737192],
-            [ 0.01171022, 0.99988067, -0.01007557, -0.01208277],
-            [ 0.02503332,  0.00977995,  0.99963878, -0.05170631],
-            [ 0.,          0.,          0.,          1.        ]
-            ])
-            R_ci = T_ci[:3, :3]
-            rotation = quaternions_to_SO3(rotation)
-            # rotation = [r.T @ R_ci.T for r in rotation]
+        imu_timestamps, imu_rotation = read_imu(bag, imu_topic)
+        imu_rotation = quaternions_to_SO3(imu_rotation)
 
-        else:
-            
-            logger.info("Loading GPS...")
-            gps_timestamps, gps_ll = read_gps(bag, gps_topic)
 
-            translation = []
-            zone = None
-            for i, ll in enumerate(gps_ll):
-                zone, easting, northing = LLtoUTM(23, ll[1], ll[0])
-                translation.append([northing, easting, -ll[-1]])
-            translation = np.array(translation)
-            
-            pose_timestamps, _, rotation = read_pose(bag, pose_topic)
-            rotation = quaternions_to_SO3(rotation)
-
-        
+        if use_pose_rot:
+            mav_timestamps, _, mav_rotation = read_pose(bag, pose_topic)
+            mav_rotation = quaternions_to_SO3(mav_rotation)
 
 
         logger.info("Localization Running...")
@@ -223,14 +202,19 @@ def image_stream(
             img_np = np.frombuffer(msg.data, np.uint8)
             image = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
 
-            time_idx = find_nearest(pose_timestamps, ts)
-            rot = rotation[time_idx]
-            
+            time_idx = find_nearest(imu_timestamps, ts)
+            imu_rot = imu_rotation[time_idx]
             
             time_idx = find_nearest(gps_timestamps, ts)
             trans = translation[time_idx]
 
-            yield ts, image, trans, rot, zone
+            if use_pose_rot:
+                time_idx = find_nearest(mav_timestamps, ts)
+                mav_rot = mav_rotation[time_idx]
+                
+                yield ts, image, trans, imu_rot, mav_rot, zone
+            else:
+                yield ts, image, trans, imu_rot, zone
 
     else:
         logger.info("Detection Running...")

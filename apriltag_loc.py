@@ -84,27 +84,54 @@ if __name__ == '__main__':
         [0,  1, 0]
     ])
     
-    T_ci = np.array([
-            [ 0.99961803, -0.01195821, -0.0249158,   0.01737192],
-            [ 0.01171022, 0.99988067, -0.01007557, -0.01208277],
-            [ 0.02503332,  0.00977995,  0.99963878, -0.05170631],
-            [ 0.,          0.,          0.,          1.        ]
-            ])
-    R_ci = T_ci[:3, :3]
-    t_imu2cam = T_ci[:3, 3]
+    T_ic = np.array([
+        [ 0.99961803,  0.01171022,  0.02503332, -0.01592941],
+        [-0.01195821,  0.99988067,  0.00977995,  0.01279475],
+        [-0.0249158 , -0.01007557,  0.99963878,  0.05199873],
+        [ 0.        ,  0.        ,  0.        ,  1.        ],
+    ])
+    R_ic = T_ic[:3, :3]
+    t_cam2imu = T_ic[:3, 3]
+    t_cam2body = np.array([-0.15, -1.3, 0.95])/10
+   
     
-    t_body2imu_camera = t_body2cam - t_imu2cam
-    t_body2imu = R_ci.T @ t_body2imu_camera
-    t_imu2body = R_bc @ (-t_body2imu_camera).reshape(-1, 1)
+    # t_body2imu_camera = t_body2cam - t_imu2cam
+    # t_body2imu = R_ic @ t_body2imu_camera
+    # t_imu2body = R_bc @ (-t_body2imu_camera).reshape(-1, 1)
 
-    logger.info(f"t_body2imu: {t_body2imu}")
+    # logger.info(f"t_body2imu: {t_body2imu}")
     
-    t_cam2imu = np.array([-0.01592941, 0.01279475, 0.05199873])
+    # t_cam2imu = np.array([-0.01592941, 0.01279475, 0.05199873])
     
-    T_bi = np.identity(4)
-    R_bi = R_bc.T @ R_ci.T
-    T_bi[:3, :3] = R_bi
-    T_bi[:3, 3] = t_body2imu    
+    # T_bi = np.identity(4)
+    # R_bi = R_bc.T @ R_ic
+    # T_bi[:3, :3] = R_bi
+    # T_bi[:3, 3] = t_body2imu    
+    
+    
+    def rotation_matrix_y(theta_deg):
+        theta_rad = np.radians(theta_deg)
+        cos_t = np.cos(theta_rad)
+        sin_t = np.sin(theta_rad)
+        return np.array([
+            [cos_t, 0, sin_t],
+            [0,     1, 0    ],
+            [-sin_t,0, cos_t]
+        ])
+        
+    def rotation_matrix_x(theta_deg):
+        theta_rad = np.radians(theta_deg)
+        cos_t = np.cos(theta_rad)
+        sin_t = np.sin(theta_rad)
+        return np.array([
+            [1, 0, 0],
+            [0, cos_t, -sin_t],
+            [0, sin_t, cos_t]
+        ])
+    R_id = rotation_matrix_x(-15)
+    
+    t_imu2body = t_cam2body - (R_id.T @ t_cam2imu.reshape(-1, 1)).flatten()
+    
     
     
     for ts, frame, translation, R_wi, zone in image_stream(
@@ -116,7 +143,9 @@ if __name__ == '__main__':
         gps_topic=gps_topic, 
         imu_topic=imu_topic
     ):
-        R_wc =  R_wi @ R_ci.T
+        R_wc = R_wi @ R_ic
+        R_wd = R_wi @ R_id
+        R_cd = R_ic.T @ R_id
         # R_wc = R_dw.T @ R_dc
         result = model(frame)
         
@@ -124,9 +153,9 @@ if __name__ == '__main__':
         # bias = np.array([0, 0, 0])
         
         
-        R_wb = R_wi @ R_bi.T
-        imu_coord_world = translation + (R_wb @ t_imu2body.reshape(-1, 1)).flatten()
-        translation = imu_coord_world
+        # R_wb = R_wi @ R_bi.T
+        # imu_coord_world = translation + (R_wb @ t_imu2body.reshape(-1, 1)).flatten()
+        # translation = imu_coord_world
 
         for img_coord in result:
             img_coord = img_coord.reshape(-1, 2)
@@ -136,32 +165,44 @@ if __name__ == '__main__':
             
             # long_uav, lat_uav, alt_uav = translation
             # zone, easting, northing = LLtoUTM(23, lat_uav, long_uav)
-            northing, easting, alt_uav = translation
+            northing, easting, alt_uav = translation  # NED
             ray_cam = (cam.reproject(img_coord)).reshape(-1, 1)
-            ray_world = R_wc @ (ray_cam)
+            ray_body =(R_cd.T @ (ray_cam)).flatten() # ray in body frame
+            ray_world = (R_wc @ (ray_cam)).flatten()  # ray in world frame
+            
+            
+            cam_loc = translation + (R_wd @ t_cam2body.reshape(-1, 1)).flatten()  # camera: northing, easting, altitude
+            alt_cam = cam_loc[-1]
+            s = -(alt_cam)/ray_world[-1]
+            
+            target2body = s * ray_body + t_cam2body
+            target2body_world = (R_wd @ target2body.reshape(-1, 1)).flatten()
+            
+            world_coord = translation + target2body_world
+            
             
             # bias = R_iw.T @ t_cam2imu.reshape(-1, 1)
             # bias = np.array([0, 0, 0])
             
             
-            ray_world = ray_world.flatten()
-            s = -(translation[2] / ray_world[2])
+            # ray_world = ray_world.flatten()
+            # s = -(translation[2])/ ray_world[2]  # sign checked (alt_uav < 0, where it takes off is 0)
             
-            world_coord = np.array([northing, easting, 0]).flatten() + s * ray_world
+            # world_coord = np.array([northing, easting, alt_uav]).flatten() + s * ray_world + bias
 
             print(f"s: {s}")
             print(f"Ray Cam: {ray_cam.flatten()}")
             print(f"Ray World: {ray_world.flatten()}")
             # print(f"bias: {bias.flatten()}")
             _, gt_e, gt_n = LLtoUTM(23, 39.9411551, -75.1987216)
-            print(f"Northing: {[northing, easting, alt_uav]}")
+            print(f"Trans: {[northing, easting, alt_uav]}")
             print(f"World Coord: {[world_coord[0], world_coord[1], world_coord[2]]}")
             print(f"GT: {[gt_n, gt_e, -24.927169916112156]}", end='\n\n')
             
-            offset = np.array([northing, easting, alt_uav]) - np.array([gt_n, gt_e, 0])
+            offset =  np.array([gt_n, gt_e, 0]) - np.array([northing, easting, alt_uav])
 
             print(f"offset: {np.round(offset, 2)}")
-            print(f"offset + s * ray_world: {np.round(offset + s * ray_world, 2)}")
+            print(f"target2body_world: {np.round(target2body_world, 2)}")
             print("======================================================")
 
 
