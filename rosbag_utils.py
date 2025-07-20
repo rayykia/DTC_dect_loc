@@ -115,7 +115,7 @@ def read_pose(
     
     alt = np.array(alt).flatten()
     z0 = alt[0]
-    alt = alt - z0  # make the first altitude zero
+    alt = z0 - alt  # make the first altitude zero, use NED
     rot = np.array(rot)
 
     return pose_timestamps, alt, rot

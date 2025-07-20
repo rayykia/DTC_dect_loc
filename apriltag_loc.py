@@ -94,7 +94,7 @@ if __name__ == '__main__':
     t_cam2imu = T_ic[:3, 3]
     # t_cam2body = np.array([0.15, -1.3, 0.95])
     # t_cam2body = np.array([0.15, -1.3, 0])
-    t_cam2body = np.array([0, -0.15, 0])
+    t_cam2body = np.array([-0.015, -0.15, 0.05])
     
    
     
@@ -233,6 +233,6 @@ if __name__ == '__main__':
             cv2.imwrite(os.path.join(save_frames_to, f'frame_{i:06d}.jpg'), frame)
 
     coords = np.array(coords)
-    np.save('logs/seq3_april3.npy', coords)
+    np.save('logs/seq3_april4.npy', coords)
     if save_vid:
         save_video(vid_pth, save_frames_to)
