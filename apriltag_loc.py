@@ -92,7 +92,10 @@ if __name__ == '__main__':
     ])
     R_ic = T_ic[:3, :3]
     t_cam2imu = T_ic[:3, 3]
-    t_cam2body = np.array([-0.15, -1.3, 0.95])/10
+    # t_cam2body = np.array([0.15, -1.3, 0.95])
+    # t_cam2body = np.array([0.15, -1.3, 0])
+    t_cam2body = np.array([0, -0.15, 0])
+    
    
     
     # t_body2imu_camera = t_body2cam - t_imu2cam
@@ -210,7 +213,8 @@ if __name__ == '__main__':
 
             lat, long = UTMtoLL(23, world_coord[0], world_coord[1], zone)
 
-            coords.append([long, lat, world_coord[-1]])
+            # coords.append([long, lat, world_coord[-1]])
+            coords.append(world_coord)
             label = f"({(world_coord[0] - gt_n):.2f}, {(world_coord[1] - gt_e):.2f}, {world_coord[2]:.2f})"
 
             img_coord = tuple(img_coord[0].astype(int))
@@ -229,6 +233,6 @@ if __name__ == '__main__':
             cv2.imwrite(os.path.join(save_frames_to, f'frame_{i:06d}.jpg'), frame)
 
     coords = np.array(coords)
-    np.save('logs/seq3_april.npy', coords)
+    np.save('logs/seq3_april3.npy', coords)
     if save_vid:
         save_video(vid_pth, save_frames_to)
