@@ -92,16 +92,14 @@ def read_pose(
             - (N, 3), translation vectors
             - (N, 4), quaternions (x, y, z, w)
     """
-    pose_timestamps, trans, rot = [], [], []
+    pose_timestamps, alt, rot = [], [], []
 
     for _, msg, t in bag.read_messages(topics=[pose_topic]):
         pose_timestamps.append(t.to_sec())
-        x = msg.pose.position.x
-        y = msg.pose.position.y
+
         z = msg.pose.position.z
-        trans.append([
-            x, y, z
-        ])
+        alt.append(z)
+        
         qx = msg.pose.orientation.x
         qy = msg.pose.orientation.y
         qz = msg.pose.orientation.z
@@ -111,16 +109,16 @@ def read_pose(
         ])
 
 
-    assert len(trans) != 0, f"No pose data found in topic `{pose_topic}`."
+    assert len(alt) != 0, f"No pose data found in topic `{pose_topic}`."
     
     pose_timestamps = np.array(pose_timestamps)
     
-    trans = np.array(trans)
-    z0 = trans[0, -1]
-    trans = trans - np.array([0, 0, z0])
+    alt = np.array(alt).flatten()
+    z0 = alt[0]
+    alt = alt - z0  # make the first altitude zero
     rot = np.array(rot)
 
-    return pose_timestamps, trans, rot
+    return pose_timestamps, alt, rot
 
 
 
@@ -190,9 +188,9 @@ def image_stream(
         imu_rotation = quaternions_to_SO3(imu_rotation)
 
 
-        if use_pose_rot:
-            mav_timestamps, _, mav_rotation = read_pose(bag, pose_topic)
-            mav_rotation = quaternions_to_SO3(mav_rotation)
+
+        mav_timestamps, alt, mav_rotation = read_pose(bag, pose_topic)
+        mav_rotation = quaternions_to_SO3(mav_rotation)
 
 
         logger.info("Localization Running...")
@@ -208,10 +206,11 @@ def image_stream(
             time_idx = find_nearest(gps_timestamps, ts)
             trans = translation[time_idx]
 
+            time_idx = find_nearest(mav_timestamps, ts)
+            altitude = alt[time_idx]
+            trans[2] = altitude  # update altitude
             if use_pose_rot:
-                time_idx = find_nearest(mav_timestamps, ts)
                 mav_rot = mav_rotation[time_idx]
-                
                 yield ts, image, trans, imu_rot, mav_rot, zone
             else:
                 yield ts, image, trans, imu_rot, zone
