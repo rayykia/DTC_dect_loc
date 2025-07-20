@@ -39,6 +39,7 @@ def save_video(
         src_path (str): source directory.
         compress (bool): compress the output video
     """
+    temp_path = '/mnt/UNENCRYPTED/ruichend/results/temp_vid.mp4'
     fps = 30
 
     logger.info(f"Loading frames from `{src_path}`.")
@@ -54,9 +55,9 @@ def save_video(
     scale = 0.5  # shrink to 50% size
     new_width, new_height = int(width * scale), int(height * scale)
 
-    video_writer = cv2.VideoWriter(f, fourcc, fps, (new_width, new_height))
+    video_writer = cv2.VideoWriter(temp_path, fourcc, fps, (new_width, new_height))
 
-    logger.info(f"Writing video to `{f}`.")
+    logger.info(f"Writing video to `{temp_path}`.")
     for file in tqdm(image_files):
         frame = cv2.imread(file)
         if frame is not None:
@@ -66,7 +67,7 @@ def save_video(
     video_writer.release()
 
     if compress:
-        compress_vid(f)
+        compress_vid(temp_path, f)
         
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ if __name__ == '__main__':
     # bag_pth = '/mnt/ENCRYPTED/workshop2/20250311/course-1/dione/course_1.bag'
     bag_pth = f'/mnt/UNENCRYPTED/ruichend/seq/seq{j}/seq_{j}.bag'
     save_frames_to = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_april'
-    save_vid = False
+    save_vid = True
     vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_april.mp4'
     #############################################################################
 
@@ -136,7 +136,8 @@ if __name__ == '__main__':
     t_imu2body = t_cam2body - (R_id.T @ t_cam2imu.reshape(-1, 1)).flatten()
     
     
-    
+    offsets = []
+    x = []
     for ts, frame, translation, R_wi, zone in image_stream(
         bag_pth, 
         frame_topic, 
@@ -210,12 +211,17 @@ if __name__ == '__main__':
 
 
             
-
             lat, long = UTMtoLL(23, world_coord[0], world_coord[1], zone)
 
-            # coords.append([long, lat, world_coord[-1]])
-            coords.append(world_coord)
-            label = f"({(world_coord[0] - gt_n):.2f}, {(world_coord[1] - gt_e):.2f}, {world_coord[2]:.2f})"
+            ######## save results ########
+            # offset_body = (R_wd.T @ offset.reshape(-1, 1)).flatten()
+            # offsets.append(offset_body)
+            # x.append(s*ray_body)
+            # coords.append(world_coord)
+            
+            
+            # label = f"({(world_coord[0] - gt_n):.2f}, {(world_coord[1] - gt_e):.2f}, {world_coord[2]:.2f})"
+            label = f"{np.round(np.linalg.norm(world_coord[:2] - np.array([gt_n, gt_e])), 2)}"
 
             img_coord = tuple(img_coord[0].astype(int))
             cv2.circle(frame, img_coord, color = box_color, radius=thickness)
@@ -232,7 +238,9 @@ if __name__ == '__main__':
         if save_vid:
             cv2.imwrite(os.path.join(save_frames_to, f'frame_{i:06d}.jpg'), frame)
 
-    coords = np.array(coords)
-    np.save('logs/seq3_april4.npy', coords)
+    # coords = np.array(coords)
+    # np.save('offset.npy', np.array(offsets))
+    # np.save('x.npy', np.array(x))
+    # np.save('logs/seq3_april4.npy', coords)
     if save_vid:
         save_video(vid_pth, save_frames_to)
