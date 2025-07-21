@@ -136,8 +136,6 @@ if __name__ == '__main__':
     t_imu2body = t_cam2body - (R_id.T @ t_cam2imu.reshape(-1, 1)).flatten()
     
     
-    offsets = []
-    x = []
     for ts, frame, translation, R_wi, zone in image_stream(
         bag_pth, 
         frame_topic, 

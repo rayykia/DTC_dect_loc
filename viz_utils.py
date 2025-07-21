@@ -40,6 +40,7 @@ def save_video(
         compress (bool): compress the output video
     """
     temp_path = '/mnt/UNENCRYPTED/ruichend/results/temp_vid.mp4'
+    
     fps = 30
 
     logger.info(f"Loading frames from `{src_path}`.")
