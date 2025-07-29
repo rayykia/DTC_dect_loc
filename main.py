@@ -17,6 +17,29 @@ from viz_utils import save_video
 from apriltag_utils import AprilTagDetector
 import argparse
 
+
+
+class UAVCalibration:
+    def __init__(self):
+        # IMU to Camera transformation (T_ic)
+        self.T_ci = np.array([
+            [ 0.011106298412152327,  0.9999324199187616,  0.0034359468839849595, 0.036802732375442404],
+            [-0.999832733821092,  0.01115499451474039,  -0.014493808237225339,  -0.008332238900780303],
+            [-0.014531156713131006 , -0.0032743996068676073, 0.9998890557415823,  -0.08775357009176091],
+            [ 0.        ,  0.        ,  0.        ,  1.        ],
+        ])
+        self.R_ci = self.T_ci[:3, :3]
+        self.R_ic = self.R_ci.T  # Rotation from Camera to IMU
+        self.t_imu2cam = self.T_ci[:3, 3]  # Translation from IMU to Camera in Camera frame
+        self.t_body2imu = np.array([-3.89588892, 0, -27.96108098])  # body to IMU in IMU frame
+        self.t_imu2body = np.array([11.0, 0.0, 26.0])  # IMU to body in body frame
+        
+        self.t_body2cam = (self.T_ci @ np.hstack((self.t_body2imu, [1])).reshape(-1, 1)).flatten()[:3]  # body to camera in camera frame
+        
+        # self.t_cam2body = 
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Localization from the UAV")
     parser.add_argument('--save_vid', action='store_true', help='Save video from the frames.')
@@ -26,14 +49,23 @@ if __name__ == '__main__':
     j = 3
     #############################################################################
     # bag_pth = '/mnt/ENCRYPTED/workshop2/20250311/course-1/dione/course_1.bag'
-    bag_pth = f'/mnt/UNENCRYPTED/ruichend/seq/seq{j}/seq_{j}.bag'
-    save_frames_to = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_frames'
+    # bag_pth = f'/mnt/UNENCRYPTED/ruichend/seq/seq{j}/seq_{j}.bag'
+    # save_frames_to = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_frames'
+    # if args.save_vid:
+    #     if args.loc:
+    #         vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_loc.mp4'
+    #     else:
+    #         vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_dect.mp4'
+    #############################################################################
+    bag_pth = "/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/dry_run_1.bag"
+    save_frames_to = '/mnt/UNENCRYPTED/ruichend/results/dry_run_1_april'
     if args.save_vid:
         if args.loc:
-            vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_loc.mp4'
+            vid_pth = '/mnt/UNENCRYPTED/ruichend/results/dry_run_1_loc.mp4'
         else:
-            vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_dect.mp4'
+            vid_pth = '/mnt/UNENCRYPTED/ruichend/results/dry_run_1_dect.mp4'
     #############################################################################
+
 
     pose_topic = '/mavros/local_position/pose'
     frame_topic = '/camera/image_color/compressed'
@@ -71,64 +103,27 @@ if __name__ == '__main__':
         os.remove(vid_pth)
 
 
+
+    calib = UAVCalibration()
     i = 0
-    
-    t_cam2body = np.array([1.297, -1.282, -0.150])
-    t_body2cam = np.array([1.30, 0.15, -1.30])
-    R_bc = np.array([
-        [0.995,  0,  -0.099],
-        [0.099, 0,  0.995],
-        [0,  1, 0]
-    ])
-    
-    T_ic = np.array([
-        [ 0.99961803,  0.01171022,  0.02503332, -0.01592941],
-        [-0.01195821,  0.99988067,  0.00977995,  0.01279475],
-        [-0.0249158 , -0.01007557,  0.99963878,  0.05199873],
-        [ 0.        ,  0.        ,  0.        ,  1.        ],
-    ])
-    R_ic = T_ic[:3, :3]
-    t_cam2imu = T_ic[:3, 3]
-    t_cam2body = np.array([-0.015, -0.15, 0.05])
-    
-    def rotation_matrix_y(theta_deg):
-        theta_rad = np.radians(theta_deg)
-        cos_t = np.cos(theta_rad)
-        sin_t = np.sin(theta_rad)
-        return np.array([
-            [cos_t, 0, sin_t],
-            [0,     1, 0    ],
-            [-sin_t,0, cos_t]
-        ])
-        
-    def rotation_matrix_x(theta_deg):
-        theta_rad = np.radians(theta_deg)
-        cos_t = np.cos(theta_rad)
-        sin_t = np.sin(theta_rad)
-        return np.array([
-            [1, 0, 0],
-            [0, cos_t, -sin_t],
-            [0, sin_t, cos_t]
-        ])
-    R_id = rotation_matrix_x(-15)
-    t_imu2body = t_cam2body - (R_id.T @ t_cam2imu.reshape(-1, 1)).flatten()
-    
     for ts, frame, translation, R_wi, zone in image_stream(
         bag_pth, 
         frame_topic, 
         pose_topic, 
-        loc=True, 
+        loc=args.loc, 
         use_pose_rot = False, 
         gps_topic=gps_topic, 
         imu_topic=imu_topic
     ):
-        R_wc = R_wi @ R_ic
-        R_wd = R_wi @ R_id
-        R_cd = R_ic.T @ R_id
-        # R_wc = R_dw.T @ R_dc
-        result = model(frame, verbose=False)[0]
-        if i == 0:
-            starting_coord = translation.copy()
+        result = model.predict(frame, verbose=False, conf=0.61)[0]
+        
+        if args.loc:
+            R_wc = R_wi @ calib.R_ic
+            # R_wd = R_wi @ R_id
+            # R_cd = R_ic.T @ R_id
+            # R_wc = R_dw.T @ R_dc
+            if i == 0:
+                starting_coord = translation.copy()
 
         for box in result.boxes:
             xyxy = box.xyxy[0].cpu().numpy().astype(int)
@@ -157,7 +152,6 @@ if __name__ == '__main__':
                 label = f"({np.round(world_coord - starting_coord, 2)})"
 
             else:
-                print("Detection mode enabled.")
                 conf = box.conf.item()
                 label = f"Person {conf:.2f}"
 

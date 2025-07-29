@@ -23,10 +23,15 @@ if __name__ == '__main__':
     j = 3
     #############################################################################
     # bag_pth = '/mnt/ENCRYPTED/workshop2/20250311/course-1/dione/course_1.bag'
-    bag_pth = f'/mnt/UNENCRYPTED/ruichend/seq/seq{j}/seq_{j}.bag'
-    save_frames_to = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_april'
+    # bag_pth = f'/mnt/UNENCRYPTED/ruichend/seq/seq{j}/seq_{j}.bag'
+    # save_frames_to = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_april'
+    # save_vid = True
+    # vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_april.mp4'
+    #############################################################################
+    bag_pth = "/mnt/extra-dtc/ruichend/seq/dry_run_1/dry_run_1.bag"
+    save_frames_to = '/mnt/extra-dtc/ruichend/results/dry_run_1_april'
     save_vid = True
-    vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_april.mp4'
+    vid_pth = '/mnt/extra-dtc/ruichend/results/dry_run_1_april.mp4'
     #############################################################################
 
 
@@ -94,7 +99,8 @@ if __name__ == '__main__':
     t_cam2imu = T_ic[:3, 3]
     # t_cam2body = np.array([0.15, -1.3, 0.95])
     # t_cam2body = np.array([0.15, -1.3, 0])
-    t_cam2body = np.array([-0.015, -0.15, 0.05])
+    # t_cam2body = np.array([-0.015, -0.15, 0.05])
+    t_cam2body = np.array([-0.015, -0.15, 0.25])
     
    
     
@@ -215,7 +221,7 @@ if __name__ == '__main__':
             # offset_body = (R_wd.T @ offset.reshape(-1, 1)).flatten()
             # offsets.append(offset_body)
             # x.append(s*ray_body)
-            # coords.append(world_coord)
+            coords.append(world_coord)
             
             
             # label = f"({(world_coord[0] - gt_n):.2f}, {(world_coord[1] - gt_e):.2f}, {world_coord[2]:.2f})"
@@ -239,6 +245,6 @@ if __name__ == '__main__':
     # coords = np.array(coords)
     # np.save('offset.npy', np.array(offsets))
     # np.save('x.npy', np.array(x))
-    # np.save('logs/seq3_april4.npy', coords)
+    np.save('logs/seq3_april5.npy', coords)
     if save_vid:
         save_video(vid_pth, save_frames_to)

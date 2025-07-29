@@ -76,7 +76,7 @@ def plot_rotation_matrix(R, filename='test.png'):
     
 if __name__ == "__main__":
     # Example rotation matrix: 45-degree rotation about Z axis
-    bag_pth = '/mnt/UNENCRYPTED/ruichend/seq/seq3/seq_3.bag'
+    bag_pth = '/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/dry_run_1.bag'
 
     pose_topic = '/mavros/local_position/pose'
     imu_topic = '/imu/imu'
@@ -88,6 +88,7 @@ if __name__ == "__main__":
     
     q1 = np.array([0.09980092942714691, -0.060778893530368805, -0.3739680051803589, 0.9200509190559387])
     q2 = np.array([0.001736475224499148, 0.0031054926975067378, 0.860854027525059, -0.5088395658848877])
+    q3 = np.array([0.06909855455160141, -0.09765955805778503, -0.47711381316185, -0.8706609606742859])
     rotation = quaternions_to_SO3(q1)
     
     T_ci = np.array([
@@ -128,5 +129,14 @@ if __name__ == "__main__":
     ])
     
     print(R_bc@R_bc.T)
+    
+    zei = np.array([0, 0, 1])
+    zeiw = np.dot((rotation @ zei.reshape(3, 1)).flatten(), zei)
+    print(f"Z axis in world frame: {zeiw}")
+    print(np.cos((15/180) * np.pi))
+    
+    
+    
 
-    plot_rotation_matrix(R_bc, 'Rbc.png')
+    # plot_rotation_matrix(rotation, 'Rbc.png')
+    

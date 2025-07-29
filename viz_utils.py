@@ -28,7 +28,7 @@ def compress_vid(f, out_pth = None):
 
 
 def save_video(
-        f: str, 
+        output_vid: str, 
         src_path: str,
         compress: bool = True
 ):
@@ -68,9 +68,10 @@ def save_video(
     video_writer.release()
 
     if compress:
-        compress_vid(temp_path, f)
+        compress_vid(temp_path, output_vid)
         
 
 if __name__ == "__main__":
     # save_video("loc.mp4", "coorded_imgs")
-    compress_vid('coord.mp4')
+    # save_video('/mnt/extra_dtc/ruichend/results/dry_run_1_dect.mp4', '/mnt/extra-dtc/ruichend/results/dry_run_1_april')
+    compress_vid('/mnt/UNENCRYPTED/ruichend/results/temp_vid.mp4', '/mnt/UNENCRYPTED/ruichend/results/dry_run_1_dect30.mp4')
