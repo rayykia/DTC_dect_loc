@@ -54,7 +54,7 @@ def read_imu(
 
     Args:
         bag (rosbag.Bag): the rosbag to extract data from
-        pose_topic (str): the topic to load
+        imu_topic (str): the topic to load
     Returns:
         Tuple[np.ndarray, np.ndarray, np.ndarray]: 
             - (N,), timestamps
@@ -68,13 +68,43 @@ def read_imu(
             [msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w]
         )
 
-    assert len(rot_quat) != 0, f"No GPS data found in topic `{imu_topic}`."
+    assert len(rot_quat) != 0, f"No IMU data found in topic `{imu_topic}`."
     
     imu_timestamps = np.array(imu_timestamps)
     rot_quat = np.array(rot_quat)
 
-
     return imu_timestamps, rot_quat
+
+
+def read_magnetic(
+        bag: rosbag.Bag,
+        magnetic_field_topic: str
+):
+    """Read the UAV IMU data from rosbag topic.
+
+    Args:
+        bag (rosbag.Bag): the rosbag to extract data from
+        magnetic_field_topic (str): the topic to load
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]: 
+            - (N,), timestamps
+            - (N, 3), magnetic_field (x, y, z)
+    """
+    imu_timestamps, magnetic_field = [], []
+
+    for _, msg, t in bag.read_messages(topics=[magnetic_field_topic]):
+        imu_timestamps.append(t.to_sec())
+        magnetic_field.append(
+            [msg.magnetic_field.x, msg.magnetic_field.y, msg.magnetic_field.z]
+        )
+
+    assert len(magnetic_field) != 0, f"No data found in topic `{magnetic_field_topic}`."
+    
+    imu_timestamps = np.array(imu_timestamps)
+    magnetic_field = np.array(magnetic_field)
+
+    return imu_timestamps, magnetic_field
+
 
 
 def read_pose(
@@ -149,6 +179,7 @@ def camera_config(f: str):
 
 
 
+
 def image_stream(
         f: str, 
         img_topic: str, 
@@ -157,6 +188,7 @@ def image_stream(
         use_pose_rot: bool = False,
         gps_topic: Optional[str] = None,
         imu_topic: Optional[str] = None,
+        magnetic_field_topic: Optional[str] = None
 ):
     """Image generator for rosbag.
 
@@ -187,7 +219,7 @@ def image_stream(
         imu_timestamps, imu_rotation = read_imu(bag, imu_topic)
         imu_rotation = quaternions_to_SO3(imu_rotation)
 
-
+        mf_timestamps, mf = read_magnetic(bag, magnetic_field_topic)
 
         mav_timestamps, alt, mav_rotation = read_pose(bag, pose_topic)
         mav_rotation = quaternions_to_SO3(mav_rotation)
@@ -202,8 +234,11 @@ def image_stream(
             image = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
 
             
-            time_idx = find_nearest(imu_timestamps, ts - timeshift_cam2imu)
+            time_idx = find_nearest(imu_timestamps, ts + timeshift_cam2imu)
             imu_rot = imu_rotation[time_idx]
+            
+            time_idx = find_nearest(mf_timestamps, ts + timeshift_cam2imu)
+            magnetic_field = mf[time_idx]
             
             time_idx = find_nearest(gps_timestamps, ts)
             trans = translation[time_idx]
@@ -213,9 +248,11 @@ def image_stream(
             trans[2] = altitude  # update altitude
             if use_pose_rot:
                 mav_rot = mav_rotation[time_idx]
-                yield ts, image, trans, imu_rot, mav_rot, zone
+                yield ts, image, trans, imu_rot, mav_rot, zone, magnetic_field
             else:
                 yield ts, image, trans, imu_rot, zone
+            
+
 
     else:
         logger.info("Detection Running...")

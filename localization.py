@@ -14,8 +14,35 @@ from rosbag_utils import bundeled_data_from_bag, image_stream, camera_config
 from viz_utils import save_video
 from apriltag_utils import AprilTagDetector
 import argparse
+import matplotlib.pyplot as plt
+from converter import LLtoUTM, UTMtoLL
 
 
+def extract_lat_lon_from_file(file_path):
+    lat, lon = None, None
+    with open(file_path, 'r') as f:
+        for line in f:
+            if line.strip().startswith('latitude:'):
+                lat = float(line.strip().split(':')[1])
+            elif line.strip().startswith('longitude:'):
+                lon = float(line.strip().split(':')[1])
+    return [lat, lon] if lat is not None and lon is not None else None
+
+def read_all_casualty_coords(directory):
+    coords = []
+    for filename in os.listdir(directory):
+        if filename.endswith('.txt'):
+            file_path = os.path.join(directory, filename)
+            lat_lon = extract_lat_lon_from_file(file_path)
+            if lat_lon:
+                coords.append(lat_lon)
+    return coords
+
+# Example usage:
+directory_path = '/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/GT'
+casualty_gps = np.array(read_all_casualty_coords(directory_path))
+casualty_coords = np.array([LLtoUTM(23, lat, lon) for lat, lon in casualty_gps])[:, 1:3].astype(np.float32)  # Extracting easting and northing
+###################
 
 class UAVCalibration:
     """Calibration parameters for the UAV.
@@ -80,7 +107,6 @@ def pixel_localization(
         rotation (np.ndarray): Rotation matrix from the UAV pose, IMU2NED.
         calibration (UAVCalibration): Calibration parameters for the UAV.
     """
-    
     # 1. Get ray in camera frame from pixel coordinates.
     pixel_coord = pixel_coord.reshape(-1, 2)  # Ensure pixel_coord is 2D
     ray_cameraFrame = camera.reproject(pixel_coord, fix_distortion=True)  # Reproject to get ray in camera frame
@@ -103,8 +129,8 @@ def pixel_localization(
     target_nedFrame = translation + (rotation @ target_imubodyFrame.reshape(-1, 1)).flatten()  # target in NED frame
     
     return target_nedFrame
-    
-    
+
+
 if __name__ == '__main__':
     camera = Camera.load_config("camchain.yaml")
     logger.info(camera)
@@ -112,30 +138,49 @@ if __name__ == '__main__':
     ros_drone = np.load('logs/dr1_dect_pose2.npy', allow_pickle=True).tolist()
     
     calibration = UAVCalibration()
-    target_coords = []
-    for ros_read in tqdm(ros_drone):
-        translation = ros_read['translation']
-        rotation = ros_read['R_imu']
-        detections = ros_read['detections']
-        pixel_coords = []
-        for det in detections:
-            pixel_coords.append([
-                det[0] + det[2] // 2,  # x center
-                det[1] + det[3] // 2  # y center
-            ])
-            
-        pixel_coords = np.array(pixel_coords).reshape(-1, 2)
+    
+    for offset in tqdm(range(90)):
+        target_coords = []
         
-        for pixel_coord in pixel_coords:
-            target_nedFrame = pixel_localization(
-                camera,
-                pixel_coord,
-                translation,
-                rotation,
-                calibration
-            )
-            target_coords.append(target_nedFrame)
+        theta = np.radians(-offset)
+        Rz = np.array([
+            [np.cos(theta), -np.sin(theta), 0],
+            [np.sin(theta),  np.cos(theta), 0],
+            [0,              0,             1]
+        ])
+        for ros_read in ros_drone:
+            translation = ros_read['translation']
+            rotation = ros_read['R_imu']
+            rotation = Rz @ rotation # Align with NED frame
+            detections = ros_read['detections']
+            pixel_coords = []
+            for det in detections:
+                pixel_coords.append([
+                    det[0] + det[2] // 2,  # x center
+                    det[1] + det[3] // 2  # y center
+                ])
+                
+            pixel_coords = np.array(pixel_coords).reshape(-1, 2)
             
-    np.save("logs/with_ts2.npy", target_coords)
+            for pixel_coord in pixel_coords:
+                target_nedFrame = pixel_localization(
+                    camera,
+                    pixel_coord,
+                    translation,
+                    rotation,
+                    calibration
+                )
+                target_coords.append(target_nedFrame)
+        # np.save("logs/with_ts3.npy", target_coords)
+        
+        target_coords = np.array(target_coords)
+        plt.axis('equal')
+        target1 = target_coords[:len(target_coords)//2, :2]  # Use only the first two columns for plotting
+        plt.scatter(target1[:, 1], target1[:, 0],  s=1)
+        target2 = target_coords[len(target_coords)//2:, :2]  # Use only the first two columns for plotting
+        plt.scatter(target2[:, 1], target2[:, 0],  s=1)
+        plt.scatter(casualty_coords[:, 0], casualty_coords[:, 1], label='Ground Truth', color='black')
+        plt.savefig(f'offset/{offset:02d}.png')
+        plt.close()
     
             
