@@ -24,7 +24,7 @@ def set_device(device: str = 'cuda'):
 
 def box_center(
         boxes: Boxes, 
-        center: bool = True
+        center: bool = False
 ) -> np.ndarray:
     """Get the center of the bounding boxes.
     

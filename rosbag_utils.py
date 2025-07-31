@@ -194,13 +194,15 @@ def image_stream(
 
 
         logger.info("Localization Running...")
+        timeshift_cam2imu = -0.011651114208394868
         for _, msg, t in tqdm(bag.read_messages(topics=[img_topic])):
             ts = t.to_sec()
             
             img_np = np.frombuffer(msg.data, np.uint8)
             image = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
 
-            time_idx = find_nearest(imu_timestamps, ts)
+            
+            time_idx = find_nearest(imu_timestamps, ts - timeshift_cam2imu)
             imu_rot = imu_rotation[time_idx]
             
             time_idx = find_nearest(gps_timestamps, ts)

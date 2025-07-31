@@ -125,8 +125,7 @@ if __name__ == '__main__':
     logger.info(f"YOLO confidence threshold: {confidence_threshold}")
     
     coords = []
-    bbox_log_path = os.path.join("logs/bbox_log.txt")
-    bbox_log_file = open(bbox_log_path, "w")
+    detections = []
     for ts, frame, translation, R_wi, zone in image_stream(
         bag_pth, 
         frame_topic, 
@@ -153,6 +152,8 @@ if __name__ == '__main__':
             img_coord = box_center(box, center=False)
 
             if args.loc:
+                
+                
                 
                 img_coord = img_coord.reshape(-1, 2)        
                 # long_uav, lat_uav, alt_uav = translation
@@ -193,10 +194,14 @@ if __name__ == '__main__':
                 conf = box.conf.item()
                 label = f"Person {conf:.2f}"
                 # Log bounding box: frame_id, x1, y1, x2, y2, confidence
-                bbox_log_file.write(f"{i:06d},{xyxy[0]},{xyxy[1]},{xyxy[2]},{xyxy[3]},{conf:.4f}\n")
+                # detections.append([i, xyxy[0], xyxy[1], xyxy[2], xyxy[3]])
 
             # Draw bounding box
             cv2.rectangle(frame, tuple(xyxy[:2]), tuple(xyxy[2:]), box_color, thickness)
+            
+            # Draw img_coord
+            for pt in img_coord:
+                cv2.circle(frame, pt, radius=4, color=(0, 255, 0), thickness=-1) 
 
             # Prepare label background
             (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
@@ -213,8 +218,8 @@ if __name__ == '__main__':
         if args.save_vid:
             # Always save the frame, even if no person is found
             cv2.imwrite(os.path.join(save_frames_to, f'frame_{i:06d}.jpg'), frame)
-        
-    bbox_log_file.close()
-    np.save('logs/dry_run_1_half.npy', coords)
+    
+    # np.save('logs/dry_run_1_detections.npy', np.array(detections, dtype=np.int32))
+    # np.save('logs/dry_run_1_half.npy', coords)
     if args.save_vid:
         save_video(vid_pth, save_frames_to)
