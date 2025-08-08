@@ -191,7 +191,7 @@ if __name__ == '__main__':
             # Always save the frame, even if no person is found
             cv2.imwrite(os.path.join(save_frames_to, f'frame_{i:06d}.jpg'), frame)
     
-    np.save('with_ts5.npy', np.array(coords))
+    np.save('logs/use_alt.npy', np.array(coords))
     if args.save_vid:
         save_heatmap_frames(
             records,

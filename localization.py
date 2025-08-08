@@ -250,7 +250,7 @@ class Tracker:
         return target_nedFrame
 
 
-    def pixel2NED(
+    def pixel2GPS(
             self,
             pixel_coord: np.ndarray,
             translation: np.ndarray,
