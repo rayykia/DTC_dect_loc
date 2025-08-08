@@ -219,14 +219,12 @@ def image_stream(
         imu_timestamps, imu_rotation = read_imu(bag, imu_topic)
         imu_rotation = quaternions_to_SO3(imu_rotation)
 
-        mf_timestamps, mf = read_magnetic(bag, magnetic_field_topic)
+        # mf_timestamps, mf = read_magnetic(bag, magnetic_field_topic)
 
         mav_timestamps, alt, mav_rotation = read_pose(bag, pose_topic)
         mav_rotation = quaternions_to_SO3(mav_rotation)
 
-
-        logger.info("Localization Running...")
-        timeshift_cam2imu = -0.011651114208394868
+        timeshift_cam2imu = -0.020539521766310343
         for _, msg, t in tqdm(bag.read_messages(topics=[img_topic])):
             ts = t.to_sec()
             
@@ -237,8 +235,8 @@ def image_stream(
             time_idx = find_nearest(imu_timestamps, ts + timeshift_cam2imu)
             imu_rot = imu_rotation[time_idx]
             
-            time_idx = find_nearest(mf_timestamps, ts + timeshift_cam2imu)
-            magnetic_field = mf[time_idx]
+            # time_idx = find_nearest(mf_timestamps, ts + timeshift_cam2imu)
+            # magnetic_field = mf[time_idx]
             
             time_idx = find_nearest(gps_timestamps, ts)
             trans = translation[time_idx]
@@ -248,14 +246,13 @@ def image_stream(
             trans[2] = altitude  # update altitude
             if use_pose_rot:
                 mav_rot = mav_rotation[time_idx]
-                yield ts, image, trans, imu_rot, mav_rot, zone, magnetic_field
+                yield ts, image, trans, imu_rot, mav_rot, zone
             else:
                 yield ts, image, trans, imu_rot, zone
             
 
 
     else:
-        logger.info("Detection Running...")
         for _, msg, t in tqdm(bag.read_messages(topics=[img_topic])):
             ts = t.to_sec()
             

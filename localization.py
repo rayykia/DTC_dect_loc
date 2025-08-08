@@ -1,137 +1,118 @@
 import numpy as np
-import torch
-from ultralytics import YOLO
-import cv2
 import os
 from loguru import logger
 from tqdm import tqdm
-import shutil
-
-
 from camera import Camera
-from tracking_utils import box_center, set_device
-from rosbag_utils import bundeled_data_from_bag, image_stream, camera_config
-from viz_utils import save_video
-from apriltag_utils import AprilTagDetector
-import argparse
-import matplotlib.pyplot as plt
 from converter import LLtoUTM, UTMtoLL
+from calibration import UAVCalibration
 
 
-def extract_lat_lon_from_file(file_path):
-    lat, lon = None, None
-    with open(file_path, 'r') as f:
-        for line in f:
-            if line.strip().startswith('latitude:'):
-                lat = float(line.strip().split(':')[1])
-            elif line.strip().startswith('longitude:'):
-                lon = float(line.strip().split(':')[1])
-    return [lat, lon] if lat is not None and lon is not None else None
+class Tracker:
+    def __init__(self, camera: Camera, calibration: UAVCalibration):
+        self.camera = camera
+        self.calibration = calibration
 
-def read_all_casualty_coords(directory):
-    coords = []
-    for filename in os.listdir(directory):
-        if filename.endswith('.txt'):
-            file_path = os.path.join(directory, filename)
-            lat_lon = extract_lat_lon_from_file(file_path)
-            if lat_lon:
-                coords.append(lat_lon)
-    return coords
 
-# Example usage:
-directory_path = '/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/GT'
-casualty_gps = np.array(read_all_casualty_coords(directory_path))
-casualty_coords = np.array([LLtoUTM(23, lat, lon) for lat, lon in casualty_gps])[:, 1:3].astype(np.float32)  # Extracting easting and northing
+    def pixel2NED(
+            self,
+            pixel_coord: np.ndarray,
+            translation: np.ndarray,
+            rotation: np.ndarray,
+    ):
+        """Run pixel localization from the UAV data. The translation and output is in NED frame.
+        
+        Assume body frame aligns with IMU frame in orientation.
+        Pipeline: 
+            1. Get ray in camera frame from pixel coordinates.
+            2. Transform ray to IMU/body frame and NED frame.
+            3. Get the altitude of the camera and get the scale.
+            4. Align the ray using the scale in IMU/body frame.
+            5. Target in body frame: t_cam2body + ray_imubodyframe
+            6. Target in NED frame: GPS_in_NED + rotation@target_imubodyframe
+        
+        Args:
+            pixel_coord (np.ndarray): Pixel coordinates in the image.
+            translation (np.ndarray): Translation vector from the UAV pose, [northing, easting, altitude] in NED.
+            rotation (np.ndarray): Rotation matrix from the UAV pose, IMU2NED.
+        """
+        pixel_coord = pixel_coord.reshape(-1, 2)  # Ensure pixel_coord is 2D
+        ray_cameraFrame = self.camera.reproject(pixel_coord, fix_distortion=True)  # Reproject to get ray in camera frame
+        
+        ray_imubodyFrame = (self.calibration.R_ic @ ray_cameraFrame.reshape(-1, 1)).flatten()  # ray in IMU/body frame
+        ray_nedFrame = (rotation @ ray_imubodyFrame.reshape(-1, 1)).flatten()  # ray in NED frame
+        
+        alt_cam = self.calibration.get_alt_cam(translation[-1], rotation)  # altitude of the camera in NED frame
+        scale =  - alt_cam / ray_nedFrame[-1]  # scale factor to align the ray with the altitude, note alt_cam < 0
+        
+        ray_imubodyFrame *= scale  # scale the ray in IMU/body frame
+
+        target_imubodyFrame = self.calibration.t_cam2body + ray_imubodyFrame  # target in IMU/body frame
+        
+        target_nedFrame = translation + (rotation @ target_imubodyFrame.reshape(-1, 1)).flatten()  # target in NED frame
+        
+        return target_nedFrame
+
+
+    def pixel2NED(
+            self,
+            pixel_coord: np.ndarray,
+            translation: np.ndarray,
+            rotation: np.ndarray,
+            zone: str
+    ):
+        """Run pixel localization from the UAV data. The translation is in NED frame.
+        
+        Args:
+            pixel_coord (np.ndarray): Pixel coordinates in the image.
+            translation (np.ndarray): Translation vector from the UAV pose, [northing, easting, altitude] in NED.
+            rotation (np.ndarray): Rotation matrix from the UAV pose, IMU2NED.
+            zone (str): zone for UTM to LL.
+        
+        Return:
+            lat (float): latitude
+            long (float): longitude
+        """
+        ned_coord = self.pixel2NED(pixel_coord, translation, rotation)
+        lat, long = UTMtoLL(23, ned_coord[0], ned_coord[1], zone)
+        return lat, long
+
+
+
+
+
+
+
+
+
+
+if __name__=='__main__':
+    def extract_lat_lon_from_file(file_path):
+        lat, lon = None, None
+        with open(file_path, 'r') as f:
+            for line in f:
+                if line.strip().startswith('latitude:'):
+                    lat = float(line.strip().split(':')[1])
+                elif line.strip().startswith('longitude:'):
+                    lon = float(line.strip().split(':')[1])
+        return [lat, lon] if lat is not None and lon is not None else None
+
+    def read_all_casualty_coords(directory):
+        coords = []
+        for filename in os.listdir(directory):
+            if filename.endswith('.txt'):
+                file_path = os.path.join(directory, filename)
+                lat_lon = extract_lat_lon_from_file(file_path)
+                if lat_lon:
+                    coords.append(lat_lon)
+        return coords
+
+    # Example usage:
+    directory_path = '/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/GT'
+    casualty_gps = np.array(read_all_casualty_coords(directory_path))
+    casualty_coords = np.array([LLtoUTM(23, lat, lon) for lat, lon in casualty_gps])[:, 1:3].astype(np.float32)  # Extracting easting and northing
 ###################
 
-class UAVCalibration:
-    """Calibration parameters for the UAV.
-    
-    Body frame is in the same orientation as  the IMU frame but with an offset.
-    """
-    def __init__(self):
-        self.T_ci = np.array([
-            [ 0.011106298412152327,  0.9999324199187616,  0.0034359468839849595, 0.036802732375442404],
-            [-0.999832733821092,  0.01115499451474039,  -0.014493808237225339,  -0.008332238900780303],
-            [-0.014531156713131006 , -0.0032743996068676073, 0.9998890557415823,  -0.08775357009176091],
-            [ 0.        ,  0.        ,  0.        ,  1.        ],
-        ])
-        self.R_ci = self.T_ci[:3, :3]
-        self.R_ic = self.R_ci.T  # Rotation: camera to IMU
-        self.t_imu2cam = self.T_ci[:3, 3]  # Translation from IMU to camera in camera frame
-        
-        self.t_body2imu = np.array([-0.0389588892, 0, -0.2796108098])  # body to IMU in IMU frame
-        self.t_imu2body = -self.t_body2imu  # IMU to body in body frame
 
-        self.t_body2cam = (self.T_ci @ np.hstack((self.t_body2imu, [1])).reshape(-1, 1)).flatten()[:3]  # body to camera in camera frame
-        self.t_body2cam_imu = (self.R_ic @ self.t_body2cam.reshape(-1, 1)).flatten()  # body to camera in IMU frame
-        # self.t_cam2body = -(self.R_ic @ self.t_imu2cam.reshape(-1, 1)).flatten()  # camera to body in IMU/body frame
-        self.t_cam2body = -self.t_body2cam_imu
-        
-    def get_alt_cam(self, alt_body, R_wi):
-        """
-        Get the altitude of the camera in the world frame.
-        :param alt_body: Altitude in body frame.
-        :param R_wi: Rotation from world to IMU frame.
-        :return: Altitude of the camera in the world frame.
-        """
-        alt_offset = (R_wi @ self.t_body2cam_imu.reshape(-1, 1)).flatten()[-1]
-        assert alt_offset <= 0, "Drone upside down?"
-        alt_cam = alt_body - (R_wi @ self.t_body2cam_imu.reshape(-1, 1)).flatten()[-1]
-        return alt_cam
-
-
-
-def pixel_localization(
-        camera: Camera,
-        pixel_coord: np.ndarray,
-        translation: np.ndarray,
-        rotation: np.ndarray,
-        calibration: UAVCalibration
-):
-    """Run pixel localization from the UAV data.
-    
-    Assume body frame aligns with IMU frame in orientation.
-    Pipeline: 
-        1. Get ray in camera frame from pixel coordinates.
-        2. Transform ray to IMU/body frame and NED frame.
-        3. Get the altitude of the camera and get the scale.
-        4. Align the ray using the scale in IMU/body frame.
-        5. Target in body frame: t_cam2body + ray_imubodyframe
-        6. Target in NED frame: GPS_in_NED + rotation@target_imubodyframe
-    
-    Args:
-        camera (Camera): Camera object with calibration parameters.
-        pixel_coord (np.ndarray): Pixel coordinates in the image.
-        translation (np.ndarray): Translation vector from the UAV pose, [northing, easting, altitude] in NED.
-        rotation (np.ndarray): Rotation matrix from the UAV pose, IMU2NED.
-        calibration (UAVCalibration): Calibration parameters for the UAV.
-    """
-    # 1. Get ray in camera frame from pixel coordinates.
-    pixel_coord = pixel_coord.reshape(-1, 2)  # Ensure pixel_coord is 2D
-    ray_cameraFrame = camera.reproject(pixel_coord, fix_distortion=True)  # Reproject to get ray in camera frame
-    
-    # 2. Transform ray to IMU/body frame and NED frame.
-    ray_imubodyFrame = (calibration.R_ic @ ray_cameraFrame.reshape(-1, 1)).flatten()  # ray in IMU/body frame
-    ray_nedFrame = (rotation @ ray_imubodyFrame.reshape(-1, 1)).flatten()  # ray in NED frame
-    
-    # 3. Get the altitude of the camera and get the scale.
-    alt_cam = calibration.get_alt_cam(translation[-1], rotation)  # altitude of the camera in NED frame
-    scale =  - alt_cam / ray_nedFrame[-1]  # scale factor to align the ray with the altitude, note alt_cam < 0
-    
-    # 4. Align the ray using the scale in IMU/body frame.
-    ray_imubodyFrame *= scale  # scale the ray in IMU/body frame
-    
-    # 5. Target in body frame: t_cam2body + ray_imubodyframe
-    target_imubodyFrame = calibration.t_cam2body + ray_imubodyFrame  # target in IMU/body frame
-    
-    # 6. Target in NED frame: GPS_in_NED + rotation@target_imubodyframe
-    target_nedFrame = translation + (rotation @ target_imubodyFrame.reshape(-1, 1)).flatten()  # target in NED frame
-    
-    return target_nedFrame
-
-
-if __name__ == '__main__':
     camera = Camera.load_config("camchain.yaml")
     logger.info(camera)
     
@@ -139,48 +120,60 @@ if __name__ == '__main__':
     
     calibration = UAVCalibration()
     
-    for offset in tqdm(range(90)):
-        target_coords = []
-        
-        theta = np.radians(-offset)
-        Rz = np.array([
-            [np.cos(theta), -np.sin(theta), 0],
-            [np.sin(theta),  np.cos(theta), 0],
-            [0,              0,             1]
-        ])
-        for ros_read in ros_drone:
-            translation = ros_read['translation']
-            rotation = ros_read['R_imu']
-            rotation = Rz @ rotation # Align with NED frame
-            detections = ros_read['detections']
-            pixel_coords = []
-            for det in detections:
-                pixel_coords.append([
-                    det[0] + det[2] // 2,  # x center
-                    det[1] + det[3] // 2  # y center
-                ])
-                
-            pixel_coords = np.array(pixel_coords).reshape(-1, 2)
+
+    target_coords = []
+    
+    theta = np.radians(-43)
+    Rz = np.array([
+        [np.cos(theta), -np.sin(theta), 0],
+        [np.sin(theta),  np.cos(theta), 0],
+        [0,              0,             1]
+    ])
+    
+    records = []
+    tracker = Tracker(camera, calibration)
+    for ros_read in tqdm(ros_drone):
+        translation = ros_read['translation']
+        # translation = np.array(translation) + np.array([0, 0, offset])
+        rotation = ros_read['R_imu']
+        rotation = Rz @ rotation # Align with NED frame
+        detections = ros_read['detections']
+        pixel_coords = []
+        for det in detections:
+            pixel_coords.append([
+                (det[0] + det[2]) // 2,  # x center
+                (det[1] + det[3]) // 2  # y center
+            ])
             
-            for pixel_coord in pixel_coords:
-                target_nedFrame = pixel_localization(
-                    camera,
-                    pixel_coord,
-                    translation,
-                    rotation,
-                    calibration
-                )
-                target_coords.append(target_nedFrame)
-        # np.save("logs/with_ts3.npy", target_coords)
+        pixel_coords = np.array(pixel_coords).reshape(-1, 2)
         
-        target_coords = np.array(target_coords)
-        plt.axis('equal')
-        target1 = target_coords[:len(target_coords)//2, :2]  # Use only the first two columns for plotting
-        plt.scatter(target1[:, 1], target1[:, 0],  s=1)
-        target2 = target_coords[len(target_coords)//2:, :2]  # Use only the first two columns for plotting
-        plt.scatter(target2[:, 1], target2[:, 0],  s=1)
-        plt.scatter(casualty_coords[:, 0], casualty_coords[:, 1], label='Ground Truth', color='black')
-        plt.savefig(f'offset/{offset:02d}.png')
-        plt.close()
+        localization_this_frame = []
+        for pixel_coord in pixel_coords:
+            target_nedFrame = tracker.pixel2NED(
+                pixel_coord,
+                translation,
+                rotation
+            )
+            target_coords.append(target_nedFrame)
+            localization_this_frame.append(target_nedFrame)
+            
+        records.append({
+            'translation': translation,
+            'localization': np.array(localization_this_frame, dtype=np.float32)
+        })
+    np.save("logs/with_ts4.npy", target_coords)
+    
+    
+    # save_heatmap_frames(
+    #     records,
+    #     save_path= '/mnt/UNENCRYPTED/ruichend/results/heatmap_frames'
+    # )
+    # save_video(
+    #     output_vid='/mnt/UNENCRYPTED/ruichend/results/heatmap.mp4',
+    #     src_path='/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
+    #     fps=60,
+    #     compress=True
+    # )
+
     
             

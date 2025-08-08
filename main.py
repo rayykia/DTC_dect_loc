@@ -1,4 +1,3 @@
-"""Not updated yet, debug AprilTag first."""
 
 import numpy as np
 import torch
@@ -13,47 +12,39 @@ import shutil
 from camera import Camera
 from tracking_utils import box_center, set_device
 from rosbag_utils import bundeled_data_from_bag, image_stream, camera_config
-from viz_utils import save_video
+from viz_utils import save_video, save_heatmap_frames
 from apriltag_utils import AprilTagDetector
 import argparse
 
+from localization import Tracker
+from calibration import UAVCalibration
+from converter import LLtoUTM, UTMtoLL
 
 
-class UAVCalibration:
-    """Calibration parameters for the UAV.
-    
-    Body frame is in the same orientation as  the IMU frame but with an offset.
-    """
-    def __init__(self):
-        self.T_ci = np.array([
-            [ 0.011106298412152327,  0.9999324199187616,  0.0034359468839849595, 0.036802732375442404],
-            [-0.999832733821092,  0.01115499451474039,  -0.014493808237225339,  -0.008332238900780303],
-            [-0.014531156713131006 , -0.0032743996068676073, 0.9998890557415823,  -0.08775357009176091],
-            [ 0.        ,  0.        ,  0.        ,  1.        ],
-        ])
-        self.R_ci = self.T_ci[:3, :3]
-        self.R_ic = self.R_ci.T  # Rotation: camera to IMU
-        self.t_imu2cam = self.T_ci[:3, 3]  # Translation from IMU to camera in camera frame
-        self.t_body2imu = np.array([-0.0389588892, 0, -0.2796108098])  # body to IMU in IMU frame
-        self.t_imu2body = -self.t_body2imu  # IMU to body in body frame
-        # self.t_imu2body = np.array([11.0, 0.0, 26.0])  # IMU to body in body frame
-        self.t_body2cam = (self.T_ci @ np.hstack((self.t_body2imu, [1])).reshape(-1, 1)).flatten()[:3]  # body to camera in camera frame
-        self.t_body2cam_imu = (self.R_ic @ self.t_body2cam.reshape(-1, 1)).flatten()  # body to camera in IMU frame
-        # self.t_cam2body = -(self.R_ic @ self.t_imu2cam.reshape(-1, 1)).flatten()  # camera to body in IMU/body frame
-        self.t_cam2body = -self.t_body2cam_imu
-        
-    def get_alt_cam(self, alt_body, R_wi):
-        """
-        Get the altitude of the camera in the world frame.
-        :param alt_body: Altitude in body frame.
-        :param R_wi: Rotation from world to IMU frame.
-        :return: Altitude of the camera in the world frame.
-        """
-        alt_offset = (R_wi @ self.t_body2cam_imu.reshape(-1, 1)).flatten()[-1]
-        assert alt_offset <= 0, "Drone upside down?"
-        alt_cam = alt_body - (R_wi @ self.t_body2cam_imu.reshape(-1, 1)).flatten()[-1]
-        return alt_cam
+def extract_lat_lon_from_file(file_path):
+    lat, lon = None, None
+    with open(file_path, 'r') as f:
+        for line in f:
+            if line.strip().startswith('latitude:'):
+                lat = float(line.strip().split(':')[1])
+            elif line.strip().startswith('longitude:'):
+                lon = float(line.strip().split(':')[1])
+    return [lat, lon] if lat is not None and lon is not None else None
 
+def read_all_casualty_coords(directory):
+    coords = []
+    for filename in os.listdir(directory):
+        if filename.endswith('.txt'):
+            file_path = os.path.join(directory, filename)
+            lat_lon = extract_lat_lon_from_file(file_path)
+            if lat_lon:
+                coords.append(lat_lon)
+    return coords
+
+
+directory_path = '/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/GT'
+casualty_gps = np.array(read_all_casualty_coords(directory_path))
+casualty_coords = np.array([LLtoUTM(23, lat, lon) for lat, lon in casualty_gps])[:, 1:3].astype(np.float32)  # Extracting easting and northing
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Localization from the UAV")
@@ -61,19 +52,9 @@ if __name__ == '__main__':
     parser.add_argument('--loc', action='store_true', help='Run localization.')
     args = parser.parse_args()
 
-    j = 3
-    #############################################################################
-    # bag_pth = '/mnt/ENCRYPTED/workshop2/20250311/course-1/dione/course_1.bag'
-    # bag_pth = f'/mnt/UNENCRYPTED/ruichend/seq/seq{j}/seq_{j}.bag'
-    # save_frames_to = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_frames'
-    # if args.save_vid:
-    #     if args.loc:
-    #         vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_loc.mp4'
-    #     else:
-    #         vid_pth = f'/mnt/UNENCRYPTED/ruichend/results/seq{j}_dect.mp4'
     #############################################################################
     bag_pth = "/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/dry_run_1.bag"
-    save_frames_to = '/mnt/UNENCRYPTED/ruichend/results/dry_run_1_april'
+    save_frames_to = '/mnt/UNENCRYPTED/ruichend/results/dry_run_1'
     if args.save_vid:
         if args.loc:
             vid_pth = '/mnt/UNENCRYPTED/ruichend/results/dry_run_1_loc.mp4'
@@ -87,10 +68,6 @@ if __name__ == '__main__':
     gps_topic = '/mavros/global_position/raw/fix'
     imu_topic = '/imu/imu'
     logger.info('Loding data from rosbag...')
-
-    # data_bundel = bundeled_data_from_bag(bag_pth, frame_topic, pose_topic)
-
-    logger.info('Done.')
 
     device = set_device()
     
@@ -126,6 +103,23 @@ if __name__ == '__main__':
     
     coords = []
     detections = []
+    
+    ### manual calibration ###
+    theta = np.radians(-43)
+    Rz = np.array([
+        [np.cos(theta), -np.sin(theta), 0],
+        [np.sin(theta),  np.cos(theta), 0],
+        [0,              0,             1]
+    ])
+    ########################
+    records = []
+    if args.loc:
+        logger.info("Starting localization...")
+    else:
+        logger.info("Detection running...")
+
+
+    tracker = Tracker(cam, calib)
     for ts, frame, translation, R_wi, zone in image_stream(
         bag_pth, 
         frame_topic, 
@@ -140,53 +134,29 @@ if __name__ == '__main__':
         result = model.predict(frame, verbose=False, conf=confidence_threshold)[0]
         
         if args.loc:
-            R_wc = R_wi @ calib.R_ic
-            # R_wd = R_wi @ R_id
-            # R_cd = R_ic.T @ R_id
-            # R_wc = R_dw.T @ R_dc
+            R_wi = Rz @ R_wi
             if i == 0:
                 starting_coord = translation.copy()
-
+        localization_this_frame = []
         for box in result.boxes:
             xyxy = box.xyxy[0].cpu().numpy().astype(int)
-            img_coord = box_center(box, center=False)
+            pixel_coord = box_center(box, center=False)
 
             if args.loc:
-                
-                
-                
-                img_coord = img_coord.reshape(-1, 2)        
-                # long_uav, lat_uav, alt_uav = translation
-                # zone, easting, northing = LLtoUTM(23, lat_uav, long_uav)
-                northing, easting, alt_uav = translation  # NED
-                ray_cam = (cam.reproject(img_coord)).reshape(-1, 1)
-                ray_body =(calib.R_ic @ (ray_cam)).flatten() # ray in body frame
-                ray_world = (R_wc @ (ray_cam)).flatten()  # ray in world frame
-                
-                
-                alt_cam = calib.get_alt_cam(alt_uav, R_wi)
-                s = -(alt_cam)/ray_world[-1]
-                
-                
-                
-                target2body = s * ray_body + calib.t_cam2body
-                target2body_world = (R_wi @ target2body.reshape(-1, 1)).flatten()
-                
-                world_coord = translation + target2body_world
-                
-                # print(f"Alt_uav: {alt_uav}, Alt_cam: {alt_cam}")
-                # print(f"s: {s}")
-                # print(f"Ray Cam: {ray_cam.flatten()}")
-                # print(f"Ray World: {ray_world.flatten()}")
-                # print(f"Trans: {[northing, easting, alt_uav]}")
-                # print(f"World Coord: {[world_coord[0], world_coord[1], world_coord[2]]}")
-                # print("======================================================")
-                
-                
+                # world_coord = pixel_localization(
+                #     cam,
+                #     pixel_coord,
+                #     translation,
+                #     R_wi,
+                #     calib
+                # )
+                world_coord = tracker.pixel2NED(
+                    pixel_coord, translation, R_wi
+                )
                 coords.append(world_coord)
                 
+                localization_this_frame.append(world_coord)
                 
-                # label_coord = world_coord - starting_coord
 
                 label = f"({np.round(world_coord - starting_coord, 2)})"
 
@@ -199,9 +169,7 @@ if __name__ == '__main__':
             # Draw bounding box
             cv2.rectangle(frame, tuple(xyxy[:2]), tuple(xyxy[2:]), box_color, thickness)
             
-            # Draw img_coord
-            for pt in img_coord:
-                cv2.circle(frame, pt, radius=4, color=(0, 255, 0), thickness=-1) 
+
 
             # Prepare label background
             (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
@@ -215,11 +183,25 @@ if __name__ == '__main__':
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         i += 1
 
+        records.append({
+            'translation': translation,
+            'localization': np.array(localization_this_frame, dtype=np.float32)
+        })
         if args.save_vid:
             # Always save the frame, even if no person is found
             cv2.imwrite(os.path.join(save_frames_to, f'frame_{i:06d}.jpg'), frame)
     
-    # np.save('logs/dry_run_1_detections.npy', np.array(detections, dtype=np.int32))
-    # np.save('logs/dry_run_1_half.npy', coords)
+    np.save('with_ts5.npy', np.array(coords))
     if args.save_vid:
-        save_video(vid_pth, save_frames_to)
+        save_heatmap_frames(
+            records,
+            save_path= '/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
+            gt = casualty_coords
+        )
+        save_video(
+            output_vid='/mnt/UNENCRYPTED/ruichend/results/heatmap.mp4',
+            src_path='/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
+            fps=60,
+            compress=False
+        )
+        # save_video(vid_pth, save_frames_to)

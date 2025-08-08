@@ -8,3 +8,4 @@ logs/
 *.png
 *.zip
 *.npy
+*_.ipynb
