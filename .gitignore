@@ -9,3 +9,5 @@ logs/
 *.zip
 *.npy
 *_.ipynb
+
+.DS_Store
