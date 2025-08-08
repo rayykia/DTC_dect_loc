@@ -37,5 +37,5 @@ class UAVCalibration:
         """
         alt_offset = (R_wi @ self.t_body2cam_imu.reshape(-1, 1)).flatten()[-1]
         assert alt_offset <= 0, "Drone upside down?"
-        alt_cam = alt_body - (R_wi @ self.t_body2cam_imu.reshape(-1, 1)).flatten()[-1]
+        alt_cam = alt_body - (R_wi @ self.t_body2cam_imu.reshape(-1, 1)).flatten()[-1] - 0.26
         return alt_cam
