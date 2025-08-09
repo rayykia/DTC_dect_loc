@@ -159,7 +159,7 @@ if __name__ == '__main__':
                 localization_this_frame.append(world_coord)
                 
 
-                label = f"({np.round(world_coord - starting_coord, 2)})"
+                label = f"({np.round(world_coord - starting_coord, 2)}, ID: {cluster_id})"
 
             else:
                 conf = box.conf.item()
@@ -194,11 +194,11 @@ if __name__ == '__main__':
     
     np.save('logs/use_alt.npy', np.array(coords))
     if args.save_vid:
-        save_heatmap_frames(
-            records,
-            save_path= '/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
-            gt = casualty_coords
-        )
+        # save_heatmap_frames(
+        #     records,
+        #     save_path= '/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
+        #     gt = casualty_coords
+        # )
         save_video(
             output_vid='/mnt/UNENCRYPTED/ruichend/results/heatmap.mp4',
             src_path='/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
