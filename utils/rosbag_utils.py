@@ -9,7 +9,7 @@ import bisect
 from typing import Tuple, Optional
 from loguru import logger
 
-from converter import LLtoUTM, UTMtoLL
+from .converter import LLtoUTM, UTMtoLL
 
 
 
