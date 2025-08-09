@@ -199,10 +199,10 @@ if __name__ == '__main__':
         #     save_path= '/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
         #     gt = casualty_coords
         # )
-        save_video(
-            output_vid='/mnt/UNENCRYPTED/ruichend/results/heatmap.mp4',
-            src_path='/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
-            fps=60,
-            compress=False
-        )
-        # save_video(vid_pth, save_frames_to)
+        # save_video(
+        #     output_vid='/mnt/UNENCRYPTED/ruichend/results/heatmap.mp4',
+        #     src_path='/mnt/UNENCRYPTED/ruichend/results/heatmap_frames',
+        #     fps=60,
+        #     compress=False
+        # )
+        save_video(vid_pth, save_frames_to)
