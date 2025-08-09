@@ -224,7 +224,7 @@ def image_stream(
         mav_timestamps, alt, mav_rotation = read_pose(bag, pose_topic)
         mav_rotation = quaternions_to_SO3(mav_rotation)
 
-        timeshift_cam2imu = -0.020539521766310343
+        timeshift_cam2imu = -0.020539521766310343  # camera lagging reported the calibration
         for _, msg, t in tqdm(bag.read_messages(topics=[img_topic])):
             ts = t.to_sec()
             
@@ -266,66 +266,6 @@ def image_stream(
 
 
 
-def bundeled_data_from_bag(
-        f: str, 
-        img_topic: str, 
-        pose_topic: str, 
-):
-    """Read the data: frames and poses.
-
-    Args:
-        f (str): path to the rosbag
-        img_topic (str): topic of the images
-        pose_topic (str): topic of the poses
-    """
-    bag = rosbag.Bag(f)
-    data_bundle = []
-
-    logger.info("Loading pose...")
-    pose_timestamps, translation, rotation = read_pose(bag, pose_topic)
-    rotation = quaternions_to_SO3(rotation)
-
-    T_ci = np.array([
-        [ 0.99961803, -0.01195821, -0.0249158,   0.01737192],
-        [ 0.01171022, 0.99988067, -0.01007557, -0.01208277],
-        [ 0.02503332,  0.00977995,  0.99963878, -0.05170631],
-        [ 0.,          0.,          0.,          1.        ]
-    ])
-
-    R_ci = T_ci[:3, :3]
-    t_ci = T_ci[:3, 3]
-
-    rotation = rotation @ R_ci.T
-    translation += t_ci
-
-    logger.info("Aligning frames...")
-    for topic, msg, t in tqdm(bag.read_messages(topics=[img_topic])):
-        ts = t.to_sec()
-
-        # ###############################
-        # # use 1000 frames for debugging
-        # if ts < 1741733505.4956772:
-        #     continue
-        # if ts > 1741733755.5114589:
-        #     break
-        # ###############################
-        
-        img_np = np.frombuffer(msg.data, np.uint8)
-        image = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
-
-        time_idx = find_nearest(pose_timestamps, ts)
-        trans = translation[time_idx]
-        rot = rotation[time_idx]
-
-        # Extract values
-        data_bundle.append({
-            'timestamp': ts,
-            'image': image,
-            'trans': trans,
-            'rot': rot
-        })
-
-    return data_bundle
 
 if __name__ == "__main__":
     bag_pth = '/mnt/UNENCRYPTED/ruichend/seq/seq3/seq_3.bag'

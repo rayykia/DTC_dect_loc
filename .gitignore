@@ -8,6 +8,8 @@ logs/
 *.png
 *.zip
 *.npy
-*_.ipynb
+*.ipynb
+CLAUDE.md
+.gitignore
 
 .DS_Store
