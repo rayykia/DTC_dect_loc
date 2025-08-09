@@ -9,16 +9,15 @@ from tqdm import tqdm
 import shutil
 
 
-from camera import Camera
-from tracking_utils import box_center, set_device
-from rosbag_utils import bundeled_data_from_bag, image_stream, camera_config
-from viz_utils import save_video, save_heatmap_frames
-from apriltag_utils import AprilTagDetector
+from utils.camera import Camera
+from utils.tracking_utils import box_center, set_device
+from utils.rosbag_utils import bundeled_data_from_bag, image_stream, camera_config
+from utils.viz_utils import save_video, save_heatmap_frames
 import argparse
 
 from localization import Tracker
-from calibration import UAVCalibration
-from converter import LLtoUTM, UTMtoLL
+from utils.calibration import UAVCalibration
+from utils.converter import LLtoUTM, UTMtoLL
 
 
 def extract_lat_lon_from_file(file_path):
@@ -41,16 +40,17 @@ def read_all_casualty_coords(directory):
                 coords.append(lat_lon)
     return coords
 
-
-directory_path = '/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/GT'
-casualty_gps = np.array(read_all_casualty_coords(directory_path))
-casualty_coords = np.array([LLtoUTM(23, lat, lon) for lat, lon in casualty_gps])[:, 1:3].astype(np.float32)  # Extracting easting and northing
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Localization from the UAV")
     parser.add_argument('--save_vid', action='store_true', help='Save video from the frames.')
     parser.add_argument('--loc', action='store_true', help='Run localization.')
     args = parser.parse_args()
+
+    ## Load GT
+    directory_path = '/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/GT'
+    casualty_gps = np.array(read_all_casualty_coords(directory_path))
+    casualty_coords = np.array([LLtoUTM(23, lat, lon) for lat, lon in casualty_gps])[:, 1:3].astype(np.float32)  # Extracting easting and northing
+    
 
     #############################################################################
     bag_pth = "/mnt/UNENCRYPTED/ruichend/seq/dry_run_1/dry_run_1.bag"
@@ -112,6 +112,7 @@ if __name__ == '__main__':
         [0,              0,             1]
     ])
     ########################
+    
     records = []
     if args.loc:
         logger.info("Starting localization...")
@@ -119,13 +120,13 @@ if __name__ == '__main__':
         logger.info("Detection running...")
 
 
-    tracker = Tracker(cam, calib)
+    tracker = Tracker(cam, calib, distance_threshold=2.5, method='centroid')
+    
     for ts, frame, translation, R_wi, zone in image_stream(
         bag_pth, 
         frame_topic, 
         pose_topic, 
         loc=args.loc, 
-        use_pose_rot = False, 
         gps_topic=gps_topic, 
         imu_topic=imu_topic
     ):
@@ -150,7 +151,7 @@ if __name__ == '__main__':
                 #     R_wi,
                 #     calib
                 # )
-                world_coord = tracker.pixel2NED(
+                world_coord, cluster_id = tracker.track(
                     pixel_coord, translation, R_wi
                 )
                 coords.append(world_coord)
