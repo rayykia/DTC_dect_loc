@@ -5,6 +5,8 @@ from tqdm import tqdm
 from camera import Camera
 from converter import LLtoUTM, UTMtoLL
 from calibration import UAVCalibration
+from typing import List, Optional, Tuple
+from collections import defaultdict
 
 
 
@@ -211,10 +213,10 @@ class Tracker:
 
 
     def pixel2NED(
-            self,
-            pixel_coord: np.ndarray,
-            translation: np.ndarray,
-            rotation: np.ndarray,
+        self,
+        pixel_coord: np.ndarray,
+        translation: np.ndarray,
+        rotation: np.ndarray,
     ):
         """Run pixel localization from the UAV data. The translation and output is in NED frame.
         
@@ -250,12 +252,33 @@ class Tracker:
         return target_nedFrame
 
 
+    def NED2GPS(
+        self,
+        ned_coords: np.ndarray,
+        zone: str
+    ):
+        """NED representation to GPS representation in batch.
+        
+        Args:
+            ned_coords (np.ndarray): Coordinates in NED frame.
+            zone (str): zone for UTM to LL.
+        
+        Returns:
+            gps_coords (np.ndarray): Array of `latitude` and `longitude`.
+        """
+        gps_coords = []
+        for coord in ned_coords:
+            gps_coords.append(UTMtoLL(23, ned_coords[0], ned_coords[1], zone))
+        return np.array(gps_coords)
+            
+    
+    
     def pixel2GPS(
-            self,
-            pixel_coord: np.ndarray,
-            translation: np.ndarray,
-            rotation: np.ndarray,
-            zone: str
+        self,
+        pixel_coord: np.ndarray,
+        translation: np.ndarray,
+        rotation: np.ndarray,
+        zone: str
     ):
         """Run pixel localization from the UAV data. The translation is in NED frame.
         
@@ -266,26 +289,44 @@ class Tracker:
             zone (str): zone for UTM to LL.
         
         Return:
-            lat (float): latitude
-            long (float): longitude
+            gps_coord (np.ndarray): GPS coordinates of the detections.
         """
-        ned_coord = self.pixel2NED(pixel_coord, translation, rotation)
-        lat, long = UTMtoLL(23, ned_coord[0], ned_coord[1], zone)
-        return lat, long
+        ned_coords = self.pixel2NED(pixel_coord, translation, rotation)
+        return self.NED2GPS(ned_coords, zone)
+    
+    
     
     
     def track_pixels(
-        self
+        self,
+        pixel_coord: np.ndarray,
+        translation: np.ndarray,
+        rotation: np.ndarray,
+        toGPS: Optional[bool] = False,
+        zone: Optional[str] = None
     ):
         """Track the give detection(s).
         
         Args:
             pixel_coord (np.ndarray): Array of detection in the pixel frame.
+            translation (np.ndarray): Translation vector from the UAV pose, [northing, easting, altitude] in NED.
+            rotation (np.ndarray): Rotation matrix from the UAV pose, IMU2NED.
+            toGPS (bool): set if output GPS coordinates.
+            zone (str): zone for UTM to LL.
         
         Returns:
-            coord (np.ndarray): The detected objects' coordinate in NED frame.
-            
+            coord (np.ndarray): The detected objects' coordinates.
+            cluster_id (np.ndarray): The ID for the detected object.
         """
+        ned_coord = self.pixel2NED(pixel_coord, translation, rotation)
+        coord = ned_coord.reshape(-1, 3)
+        cluster_ids = self.clusterer.add_batch(coord)
+        
+        if toGPS:
+            coord = self.NED2GPS(ned_coord, zone)
+            
+        return coord, cluster_ids
+        
 
 
 
