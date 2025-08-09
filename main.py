@@ -127,7 +127,7 @@ def main():
             enable_localization=args.loc,
             draw_annotations=True,
             return_full_frame=True,
-            toGPS=True  # Get GPS coordinates instead of NED
+            toGPS=False
         )
         
         # Collect data

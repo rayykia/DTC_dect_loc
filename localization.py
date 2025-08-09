@@ -269,7 +269,7 @@ class Tracker:
         """
         gps_coords = []
         for coord in ned_coords:
-            gps_coords.append(UTMtoLL(23, ned_coords[0], ned_coords[1], zone))
+            gps_coords.append(UTMtoLL(23, coord[0], coord[1], zone))
         return np.array(gps_coords)
             
     
