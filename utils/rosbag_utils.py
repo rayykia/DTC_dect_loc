@@ -4,7 +4,7 @@ import rosbag
 import cv2
 import numpy as np
 from tqdm import tqdm
-from tracking_utils import quaternions_to_SO3, to_SE3
+from .tracking_utils import quaternions_to_SO3, to_SE3
 import bisect
 from typing import Tuple, Optional
 from loguru import logger
